@@ -9,6 +9,7 @@
  * @property {MediaKind} kind
  * @property {string} [filename] - Suggested filename without path.
  * @property {string} [source] - Site id or 'generic' for debugging.
+ * @property {boolean} [hls] - `url` is an HLS media playlist; segments are joined into an MP4.
  */
 
 /**
@@ -16,7 +17,7 @@
  * @returns {MediaItem}
  */
 export function mediaItem(partial) {
-  const { url, label, kind = 'other', filename, source } = partial;
+  const { url, label, kind = 'other', filename, source, hls } = partial;
   if (!url?.trim()) {
     throw new Error('MediaItem requires url');
   }
@@ -26,6 +27,7 @@ export function mediaItem(partial) {
     kind,
     filename,
     source,
+    ...(hls ? { hls } : {}),
   };
 }
 

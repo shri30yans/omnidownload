@@ -111,7 +111,9 @@ export function renderMediaList(items, opts = {}) {
       btn.disabled = true;
       btn.textContent = '…';
       try {
-        const result = await downloadMediaItem(item);
+        const result = await downloadMediaItem(item, (f) => {
+          btn.textContent = `${Math.round(f * 100)}%`;
+        });
         if (!result?.ok) {
           throw new Error(result?.error || 'Download failed');
         }

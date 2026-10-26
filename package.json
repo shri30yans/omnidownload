@@ -16,5 +16,8 @@
     "eslint": "^9.39.5",
     "globals": "^17.13.0"
   },
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "mux.js": "^6.3.0"
+  }
 }

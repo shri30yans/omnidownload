@@ -1,6 +1,11 @@
 import { mediaItem } from '../core/media-item.js';
 import { readJsonLdObjects, walkJson } from '../core/json-ld.js';
 import { registerExtractor } from '../core/registry.js';
+import {
+  findPlaylistUrls,
+  isMasterPlaylist,
+  parseMasterPlaylist,
+} from '../core/hls.js';
 
 const MEDIA_EXT = /\.(jpe?g|png|gif|webp|avif|mp4|webm|mov|m4v|mkv|mp3|m4a|wav)(\?|$)/i;
 
@@ -13,6 +18,7 @@ function kindFromUrl(url) {
 
 const MAX_IMAGES = 40;
 const MAX_LINKS = 30;
+const MAX_PLAYLISTS = 3;
 
 /** Highest-resolution candidate from srcset, else the plain src. */
 function bestImageUrl(img) {
@@ -39,10 +45,53 @@ function metaContent(doc, prop) {
   return el?.getAttribute('content')?.trim() || null;
 }
 
+function slugFromTitle(doc) {
+  const slug = (doc.title || 'video').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return slug.slice(0, 60) || 'video';
+}
+
+/**
+ * Adaptive streams (HLS) play through a blob: URL, so the <video> element has
+ * nothing to download. List the playlists the page references instead, one item
+ * per resolution; they are joined into an MP4 when downloaded.
+ *
+ * @param {Document} doc
+ */
+async function hlsItems(doc) {
+  const items = [];
+  const name = slugFromTitle(doc);
+  for (const playlistUrl of findPlaylistUrls(doc, performance).slice(0, MAX_PLAYLISTS)) {
+    try {
+      const res = await fetch(playlistUrl, { credentials: 'omit' });
+      if (!res.ok) continue;
+      const text = await res.text();
+      const variants = isMasterPlaylist(text)
+        ? parseMasterPlaylist(text, playlistUrl)
+        : [{ url: playlistUrl, height: null }];
+      for (const v of variants) {
+        const quality = v.height ? `${v.height}p` : '';
+        items.push(
+          mediaItem({
+            url: v.url,
+            label: `Video${quality ? ` ${quality}` : ''} (stream, saved as MP4)`,
+            kind: 'video',
+            filename: `${name}${quality ? `-${quality}` : ''}.mp4`,
+            source: 'generic',
+            hls: true,
+          }),
+        );
+      }
+    } catch {
+      /* unreachable or blocked playlist: skip it */
+    }
+  }
+  return items;
+}
+
 /**
  * @param {import('../core/registry.js').SiteContext} ctx
  */
-function extractGeneric(ctx) {
+async function extractGeneric(ctx) {
   const { document: doc } = ctx;
   const items = [];
 
@@ -86,6 +135,8 @@ function extractGeneric(ctx) {
       }
     });
   }
+
+  items.push(...(await hlsItems(doc)));
 
   doc.querySelectorAll('video').forEach((video, i) => {
     /** @type {{ url: string, hint: string | null }[]} */

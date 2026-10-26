@@ -21,6 +21,7 @@
 - **Real quality choices.** YouTube streams up to 4K, X video bitrates, full-size Instagram carousels, Reddit galleries.
 - **Resolves what the page really shows.** Uses each site's own data and APIs rather than guessing from thumbnails.
 - **Works on unknown sites.** Falls back to Open Graph tags, structured data, `<video>` sources and large images.
+- **Streaming video too.** Pages that play through a blob (HLS) show one entry per resolution and save as a single MP4.
 - **Streams to disk.** Downloads go through the browser, so large files are not held in memory.
 - **No accounts, no servers.** Everything runs locally in your browser.
 
@@ -54,6 +55,7 @@ Then in Chrome:
 | **Reddit** | Post `.json` with your session, falling back to the rendered post | Includes the separate audio track of `v.redd.it` videos |
 | **X / Twitter** | Public syndication endpoint, then guest-token GraphQL | |
 | **Imgur** | `api.imgur.com` post API | Albums, galleries and direct image links |
+| **Streaming video (HLS)** | Finds `.m3u8` playlists in the page, lists each resolution, joins the segments into one MP4 | Plain, unencrypted streams only; encrypted and live streams are refused |
 | **Other sites** | Open Graph, JSON-LD, `<video>`, `srcset` images, media links | Skips icons and tiny images |
 
 Signed media URLs expire. If a download fails, refresh the page and try again.

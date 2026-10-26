@@ -6,6 +6,8 @@ import { mediaFromRedditJson, redditExternalUrl } from '../src/core/reddit-json.
 import { shortcodeToMediaId, shortcodeFromInstagramUrl } from '../src/core/instagram-id.js';
 import { bestCandidate, harvestInstagramGraphJson } from '../src/core/embed-media.js';
 import { sanitizeFilename } from '../src/core/filename.js';
+import { clearInitDurations } from '../src/core/mp4-duration.js';
+import { isMasterPlaylist, parseMasterPlaylist, parseMediaPlaylist } from '../src/core/hls.js';
 
 const fmt = (o) => ({ mimeType: 'video/mp4; codecs="avc1"', ...o });
 
@@ -73,4 +75,57 @@ test('instagram: best image candidate by area, URL hint, or first on ties', () =
   assert.equal(bestCandidate([{ url: 'a', width: 100, height: 100 }, { url: 'b', width: 1080, height: 1080 }]).url, 'b');
   assert.equal(bestCandidate([{ url: 'https://x/s480x480/a.jpg' }, { url: 'https://x/original.jpg' }, { url: 'https://x/s150x150/c.jpg' }]).url, 'https://x/original.jpg');
   assert.equal(bestCandidate([{ url: 'first' }, { url: 'second' }]).url, 'first');
+});
+
+const MASTER = `#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-STREAM-INF:BANDWIDTH=400000,RESOLUTION=426x240
+a_240p.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080
+a_1080p.m3u8
+`;
+const MEDIA = `#EXTM3U
+#EXT-X-TARGETDURATION:4
+#EXT-X-PLAYLIST-TYPE:VOD
+#EXTINF:4.000000,
+a_000.ts
+#EXTINF:3.500000,
+a_001.ts
+#EXT-X-ENDLIST
+`;
+
+test('hls: master playlist lists renditions best first with absolute urls', () => {
+  assert.ok(isMasterPlaylist(MASTER));
+  assert.ok(!isMasterPlaylist(MEDIA));
+  const v = parseMasterPlaylist(MASTER, 'https://cdn.example/x/master.m3u8');
+  assert.deepEqual(v.map((x) => x.height), [1080, 240]);
+  assert.equal(v[0].url, 'https://cdn.example/x/a_1080p.m3u8');
+});
+
+test('hls: media playlist yields segments and duration', () => {
+  const { segments, duration } = parseMediaPlaylist(MEDIA, 'https://cdn.example/x/a_240p.m3u8');
+  assert.deepEqual(segments, ['https://cdn.example/x/a_000.ts', 'https://cdn.example/x/a_001.ts']);
+  assert.equal(duration, 7.5);
+});
+
+test('hls: refuses encrypted and live streams', () => {
+  assert.throws(() => parseMediaPlaylist(MEDIA.replace('#EXTINF:4', '#EXT-X-KEY:METHOD=AES-128,URI="k"\n#EXTINF:4'), 'https://x/p.m3u8'), /encrypted/);
+  assert.throws(() => parseMediaPlaylist(MEDIA.replace('#EXT-X-ENDLIST', ''), 'https://x/p.m3u8'), /Live/);
+});
+
+test('mp4: placeholder durations in mvhd/tkhd/mdhd are cleared', () => {
+  const box = (type, size, durationAt) => {
+    const b = new Uint8Array(size);
+    new DataView(b.buffer).setUint32(0, size);
+    b.set([...type].map((c) => c.charCodeAt(0)), 4);
+    new DataView(b.buffer).setUint32(durationAt, 0xffffffff); // version 0 → 4-byte duration
+    return b;
+  };
+  // offsets from the box start: type at 4, duration at 4 + (4 + 16|20)
+  const init = new Uint8Array([...box('mvhd', 40, 24), ...box('tkhd', 44, 28), ...box('mdhd', 40, 24)]);
+  clearInitDurations(init);
+  const v = new DataView(init.buffer);
+  assert.equal(v.getUint32(24), 0);
+  assert.equal(v.getUint32(40 + 28), 0);
+  assert.equal(v.getUint32(84 + 24), 0);
 });

@@ -45,7 +45,16 @@ def run():
                 kinds = [i["sub"].split(" ")[0] for i in (got or {}).get("items", [])]
                 want = c.get("expect", "video")
                 ok = (not kinds) if want == "none" else kinds.count(want) >= c.get("min", 1)
-                if ok and c.get("download") and got["items"]:
+                if ok and c.get("pick") and got["items"]:
+                    # Stream download: the extension saves via the page, so catch it in the browser.
+                    page.evaluate("(q) => [...document.querySelectorAll('.omni-item')].find(li => li.textContent.includes(q)).querySelector('button').click()", c["pick"])
+                    with page.expect_download(timeout=180000) as info:
+                        pass
+                    path = os.path.join(tempfile.mkdtemp(), "out.mp4")
+                    info.value.save_as(path)
+                    got["status"] += f" | saved {os.path.getsize(path)} bytes -> {path}"
+                    ok = os.path.getsize(path) > 10000
+                elif ok and c.get("download") and got["items"]:
                     sw = next((w for w in ctx.service_workers if w.url.startswith("chrome-extension://")), None) or ctx.wait_for_event("serviceworker")
                     before = sw.evaluate("chrome.downloads.search({}).then(r=>r.length)")
                     page.evaluate("document.querySelector('.omni-download').click()")
