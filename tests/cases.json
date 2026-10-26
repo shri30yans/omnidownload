@@ -1,9 +1,14 @@
 [
  {
-  "name": "youtube watch",
-  "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  "name": "youtube download (small video)",
+  "url": "https://www.youtube.com/watch?v=jNQXAC9IVRw",
   "expect": "video",
   "download": true
+ },
+ {
+  "name": "youtube watch",
+  "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  "expect": "video"
  },
  {
   "name": "youtube shorts",
@@ -26,9 +31,15 @@
   "expect": "image"
  },
  {
-  "name": "instagram post (logged out)",
+  "name": "instagram post (logged out, from page data)",
   "url": "https://www.instagram.com/p/BsOGulcndj-/",
-  "expect": "image"
+  "expect": "image",
+  "download": true
+ },
+ {
+  "name": "instagram inbox (no media)",
+  "url": "https://www.instagram.com/direct/inbox/",
+  "expect": "none"
  },
  {
   "name": "w3schools video page",

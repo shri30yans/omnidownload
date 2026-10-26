@@ -47,14 +47,15 @@ def run():
                 ok = (not kinds) if want == "none" else kinds.count(want) >= c.get("min", 1)
                 if ok and c.get("download") and got["items"]:
                     sw = next((w for w in ctx.service_workers if w.url.startswith("chrome-extension://")), None) or ctx.wait_for_event("serviceworker")
+                    before = sw.evaluate("chrome.downloads.search({}).then(r=>r.length)")
                     page.evaluate("document.querySelector('.omni-download').click()")
                     dl = None
                     for _ in range(60):
                         time.sleep(1)
-                        dl = sw.evaluate("chrome.downloads.search({}).then(r=>r.map(d=>({state:d.state,bytes:d.totalBytes||d.bytesReceived,err:d.error,name:d.filename.split('/').pop()})))")
-                        if dl and dl[-1]["state"] != "in_progress": break
-                    ok = bool(dl) and dl[-1]["state"] == "complete" and dl[-1]["bytes"] > 1000
-                    got["status"] += f" | download: {dl[-1] if dl else None}"
+                        dl = sw.evaluate("chrome.downloads.search({orderBy:['-startTime']}).then(r=>r.map(d=>({state:d.state,bytes:d.totalBytes||d.bytesReceived,err:d.error,name:d.filename.split('/').pop()})))")
+                        if dl and len(dl) > before and dl[0]["state"] != "in_progress": break
+                    ok = bool(dl) and len(dl) > before and dl[0]["state"] == "complete" and dl[0]["bytes"] > 1000
+                    got["status"] += f" | download: {dl[0] if dl else None}"
                 results.append((c["name"], ok, got, logs[:3]))
             except Exception as e:
                 results.append((c["name"], False, {"status": f"ERROR {e}", "items": []}, logs[:3]))

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { mediaItemsFromPlayer } from '../src/core/youtube-streams.js';
 import { mediaFromRedditJson, redditExternalUrl } from '../src/core/reddit-json.js';
 import { shortcodeToMediaId, shortcodeFromInstagramUrl } from '../src/core/instagram-id.js';
-import { harvestInstagramGraphJson } from '../src/core/embed-media.js';
+import { bestCandidate, harvestInstagramGraphJson } from '../src/core/embed-media.js';
 import { sanitizeFilename } from '../src/core/filename.js';
 
 const fmt = (o) => ({ mimeType: 'video/mp4; codecs="avc1"', ...o });
@@ -49,7 +49,9 @@ test('reddit: video, image, gallery, gifv, crosspost', () => {
 test('instagram: shortcode -> media id, url forms', () => {
   assert.equal(shortcodeToMediaId('BsOGulcndj-'), '1949525278281554174');
   assert.equal(shortcodeFromInstagramUrl('https://www.instagram.com/reel/ABC_def-1/?igsh=x'), 'ABC_def-1');
+  assert.equal(shortcodeFromInstagramUrl('https://www.instagram.com/reels/ABC_def-1/'), 'ABC_def-1');
   assert.equal(shortcodeFromInstagramUrl('https://www.instagram.com/someuser/'), null);
+  assert.equal(shortcodeFromInstagramUrl('https://www.instagram.com/direct/t/17842434503564216/'), null);
 });
 
 test('instagram: harvest carousel picks best image + videos', () => {
@@ -65,4 +67,10 @@ test('instagram: harvest carousel picks best image + videos', () => {
 test('filename: strips illegal characters and caps length', () => {
   assert.equal(sanitizeFilename('a/b:c?.mp4'), 'a_b_c_.mp4');
   assert.ok(sanitizeFilename('x'.repeat(300) + '.mp4').endsWith('.mp4'));
+});
+
+test('instagram: best image candidate by area, URL hint, or first on ties', () => {
+  assert.equal(bestCandidate([{ url: 'a', width: 100, height: 100 }, { url: 'b', width: 1080, height: 1080 }]).url, 'b');
+  assert.equal(bestCandidate([{ url: 'https://x/s480x480/a.jpg' }, { url: 'https://x/original.jpg' }, { url: 'https://x/s150x150/c.jpg' }]).url, 'https://x/original.jpg');
+  assert.equal(bestCandidate([{ url: 'first' }, { url: 'second' }]).url, 'first');
 });

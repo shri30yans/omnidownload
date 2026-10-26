@@ -7,6 +7,8 @@ import { ROOT_ID, ensureRoot, renderMediaList, togglePanel } from './panel.js';
 const SCAN_DEBOUNCE_MS = 800;
 let scanInFlight = false;
 let rescanQueued = false;
+/** @type {MutationObserver | undefined} */
+let observer;
 
 function buildContext() {
   return {
@@ -16,7 +18,20 @@ function buildContext() {
   };
 }
 
+/**
+ * After the extension is reloaded or updated, the old content script keeps
+ * running in already-open tabs but loses its link to the extension. Stop
+ * quietly instead of throwing "Extension context invalidated" on every scan.
+ */
+function extensionAlive() {
+  return Boolean(globalThis.chrome?.runtime?.id);
+}
+
 async function scan() {
+  if (!extensionAlive()) {
+    observer?.disconnect();
+    return;
+  }
   if (scanInFlight) {
     // The page changed mid-scan; run once more when this one finishes.
     rescanQueued = true;
@@ -62,7 +77,8 @@ function observeDom() {
       debounced();
     }
   };
-  new MutationObserver(onChange).observe(document.documentElement, {
+  observer = new MutationObserver(onChange);
+  observer.observe(document.documentElement, {
     childList: true,
     subtree: true,
   });

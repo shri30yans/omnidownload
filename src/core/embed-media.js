@@ -1,6 +1,22 @@
 import { walkJson } from './json-ld.js';
 
 /**
+ * Pixel area of an image candidate. Logged-out data omits width/height, but its
+ * resized variants carry a size hint in the URL (`s480x480`); the original has
+ * no hint at all, so "no size information" means the largest.
+ */
+function candidateArea(c) {
+  if (c.width) return c.width * (c.height || c.width);
+  const hint = c.url?.match(/[ps](\d+)x(\d+)/);
+  return hint ? Number(hint[1]) * Number(hint[2]) : Infinity;
+}
+
+/** Largest candidate; on a tie keep the first, since Instagram lists the biggest first. */
+export function bestCandidate(candidates) {
+  return candidates.reduce((best, c) => (candidateArea(c) > candidateArea(best) ? c : best));
+}
+
+/**
  * Pull media URLs from Instagram-style / GraphQL blobs in page JSON.
  * @param {unknown} root
  * @param {(item: { url: string; kind: 'image'|'video'|'audio'; label: string }) => void} onMedia
@@ -29,7 +45,7 @@ export function harvestInstagramGraphJson(root, onMedia) {
 
     const candidates = node.image_versions2?.candidates;
     if (Array.isArray(candidates) && candidates.length) {
-      const best = candidates.reduce((a, b) => ((a.width || 0) > (b.width || 0) ? a : b));
+      const best = bestCandidate(candidates);
       if (best?.url) {
         onMedia({
           url: best.url,

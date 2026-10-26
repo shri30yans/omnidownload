@@ -19,6 +19,6 @@ export function shortcodeToMediaId(shortcode) {
  * @param {string} url
  */
 export function shortcodeFromInstagramUrl(url) {
-  const m = url.match(/\/(?:p|reel|tv)\/([A-Za-z0-9_-]+)/);
+  const m = url.match(/\/(?:p|reels?|tv)\/([A-Za-z0-9_-]+)/);
   return m?.[1] || null;
 }

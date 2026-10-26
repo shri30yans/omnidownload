@@ -74,9 +74,11 @@ export async function collectMedia(ctx) {
   };
 
   let flat = (await Promise.all(matched.map(run))).flat();
-  // Site extractors only know post/video pages; on feeds, profiles and
-  // unsupported hosts fall back to scraping what the page itself shows.
-  if (!flat.length && generic && !matched.some((ex) => ex.id === 'youtube')) {
+  // When a site extractor fails, or the host has none, fall back to scraping what
+  // the page shows. An extractor that returned nothing without failing (a feed,
+  // an inbox) means "no media here", so it does not fall back.
+  const siteHasNothing = matched.length > 0 && siteError === null;
+  if (!flat.length && generic && !siteHasNothing && !matched.some((ex) => ex.id === 'youtube')) {
     flat = await run(generic);
   }
 
