@@ -1,0 +1,20 @@
+{
+  "name": "omnidownload",
+  "private": true,
+  "version": "1.1.0",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "test": "node --test tests/unit.mjs",
+    "test:api": "node tests/api.mjs",
+    "test:e2e": "python3 tests/e2e.py",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "esbuild": "^0.25.0",
+    "eslint": "^9.39.5",
+    "globals": "^17.13.0"
+  },
+  "type": "module"
+}

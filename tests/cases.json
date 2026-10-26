@@ -1,0 +1,59 @@
+[
+ {
+  "name": "youtube watch",
+  "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  "expect": "video",
+  "download": true
+ },
+ {
+  "name": "youtube shorts",
+  "url": "https://www.youtube.com/shorts/aqz-KE-bpKQ",
+  "expect": "video"
+ },
+ {
+  "name": "youtu.be short link",
+  "url": "https://youtu.be/jNQXAC9IVRw",
+  "expect": "video"
+ },
+ {
+  "name": "youtube home (no video)",
+  "url": "https://www.youtube.com/",
+  "expect": "none"
+ },
+ {
+  "name": "imgur album",
+  "url": "https://imgur.com/a/AjP8JEf",
+  "expect": "image"
+ },
+ {
+  "name": "instagram post (logged out)",
+  "url": "https://www.instagram.com/p/BsOGulcndj-/",
+  "expect": "image"
+ },
+ {
+  "name": "w3schools video page",
+  "url": "https://www.w3schools.com/html/html5_video.asp",
+  "expect": "video"
+ },
+ {
+  "name": "wikimedia video",
+  "url": "https://commons.wikimedia.org/wiki/File:Big_Buck_Bunny_4K.webm",
+  "expect": "video"
+ },
+ {
+  "name": "wikipedia article images",
+  "url": "https://en.wikipedia.org/wiki/Cat",
+  "expect": "image",
+  "min": 3
+ },
+ {
+  "name": "archive.org video",
+  "url": "https://archive.org/details/Popeye_forPresident",
+  "expect": "video"
+ },
+ {
+  "name": "example.com (no media)",
+  "url": "https://example.com/",
+  "expect": "none"
+ }
+]
