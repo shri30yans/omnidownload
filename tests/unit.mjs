@@ -6,7 +6,6 @@ import { mediaFromRedditJson, redditExternalUrl } from '../src/core/reddit-json.
 import { shortcodeToMediaId, shortcodeFromInstagramUrl } from '../src/core/instagram-id.js';
 import { bestCandidate, harvestInstagramGraphJson } from '../src/core/embed-media.js';
 import { sanitizeFilename } from '../src/core/filename.js';
-import { clearInitDurations } from '../src/core/mp4-duration.js';
 import { isMasterPlaylist, parseMasterPlaylist, parseMediaPlaylist } from '../src/core/hls.js';
 
 const fmt = (o) => ({ mimeType: 'video/mp4; codecs="avc1"', ...o });
@@ -113,19 +112,39 @@ test('hls: refuses encrypted and live streams', () => {
   assert.throws(() => parseMediaPlaylist(MEDIA.replace('#EXT-X-ENDLIST', ''), 'https://x/p.m3u8'), /Live/);
 });
 
-test('mp4: placeholder durations in mvhd/tkhd/mdhd are cleared', () => {
-  const box = (type, size, durationAt) => {
-    const b = new Uint8Array(size);
-    new DataView(b.buffer).setUint32(0, size);
-    b.set([...type].map((c) => c.charCodeAt(0)), 4);
-    new DataView(b.buffer).setUint32(durationAt, 0xffffffff); // version 0 → 4-byte duration
-    return b;
-  };
-  // offsets from the box start: type at 4, duration at 4 + (4 + 16|20)
-  const init = new Uint8Array([...box('mvhd', 40, 24), ...box('tkhd', 44, 28), ...box('mdhd', 40, 24)]);
-  clearInitDurations(init);
-  const v = new DataView(init.buffer);
-  assert.equal(v.getUint32(24), 0);
-  assert.equal(v.getUint32(40 + 28), 0);
-  assert.equal(v.getUint32(84 + 24), 0);
+test('mp4: fragmented output is flattened into a normal, playable MP4', async () => {
+  const { readFileSync, writeFileSync, mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { spawnSync } = await import('node:child_process');
+  const { default: muxjs } = await import('mux.js');
+  const { flattenFragmentedMp4 } = await import('../src/core/mp4-flatten.js');
+
+  const transmuxer = new muxjs.mp4.Transmuxer();
+  let init = null;
+  const fragments = [];
+  transmuxer.on('data', (o) => {
+    init ??= o.initSegment;
+    fragments.push(o.data);
+  });
+  transmuxer.push(new Uint8Array(readFileSync(new URL('./fixtures/tiny.ts', import.meta.url))));
+  transmuxer.flush();
+
+  const file = Buffer.concat(flattenFragmentedMp4(init, fragments).map((p) => Buffer.from(p)));
+
+  // Layout: ftyp, moov, mdat. No moof boxes: nothing is left fragmented.
+  const top = [];
+  for (let i = 0; i + 8 <= file.length; i += file.readUInt32BE(i)) top.push(file.toString('latin1', i + 4, i + 8));
+  assert.deepEqual(top, ['ftyp', 'moov', 'mdat']);
+
+  // Optional end-to-end check when ffmpeg is installed (CI runners have it).
+  const out = join(mkdtempSync(join(tmpdir(), 'omni-')), 'flat.mp4');
+  writeFileSync(out, file);
+  if (spawnSync('ffprobe', ['-version']).status !== 0) return;
+  const probe = spawnSync('ffprobe', ['-v', 'error', '-count_frames', '-show_entries', 'stream=codec_type,nb_read_frames:format=duration', '-of', 'json', out]);
+  const info = JSON.parse(probe.stdout);
+  assert.ok(Math.abs(Number(info.format.duration) - 2) < 0.15, `duration ${info.format.duration}`);
+  assert.equal(Number(info.streams.find((s) => s.codec_type === 'video').nb_read_frames), 48);
+  assert.ok(info.streams.some((s) => s.codec_type === 'audio'));
+  assert.equal(spawnSync('ffmpeg', ['-v', 'error', '-i', out, '-f', 'null', '-']).stderr.length, 0);
 });

@@ -1,6 +1,6 @@
 import muxjs from 'mux.js';
 import { parseMediaPlaylist } from '../core/hls.js';
-import { clearInitDurations } from '../core/mp4-duration.js';
+import { flattenFragmentedMp4 } from '../core/mp4-flatten.js';
 
 const CONCURRENCY = 4;
 
@@ -25,24 +25,21 @@ async function mapLimit(items, limit, task) {
   return results;
 }
 
-/** Repackage MPEG-TS segments as one MP4 so any player can open it. */
+/** Repackage MPEG-TS segments as one normal MP4 that any player, including QuickTime, opens. */
 function transmux(tsSegments) {
   const transmuxer = new muxjs.mp4.Transmuxer();
-  const parts = [];
-  let initWritten = false;
+  let init = null;
+  const fragments = [];
   transmuxer.on('data', (out) => {
-    if (!initWritten) {
-      parts.push(clearInitDurations(out.initSegment));
-      initWritten = true;
-    }
-    parts.push(out.data);
+    init ??= out.initSegment;
+    fragments.push(out.data);
   });
   for (const ts of tsSegments) {
     transmuxer.push(ts);
     transmuxer.flush();
   }
-  if (!parts.length) throw new Error('Could not convert this video to MP4.');
-  return new Blob(parts, { type: 'video/mp4' });
+  if (!init) throw new Error('Could not convert this video to MP4.');
+  return new Blob(flattenFragmentedMp4(init, fragments), { type: 'video/mp4' });
 }
 
 /**
