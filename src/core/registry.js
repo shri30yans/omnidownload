@@ -78,7 +78,14 @@ export async function collectMedia(ctx) {
   // the page shows. An extractor that returned nothing without failing (a feed,
   // an inbox) means "no media here", so it does not fall back.
   const siteHasNothing = matched.length > 0 && siteError === null;
-  if (!flat.length && generic && !siteHasNothing && !matched.some((ex) => ex.id === 'youtube')) {
+  const redditCommentPage =
+    /reddit\.com/i.test(ctx.url) && /\/comments\//i.test(ctx.url);
+  const allowGeneric =
+    !flat.length &&
+    generic &&
+    !matched.some((ex) => ex.id === 'youtube') &&
+    (!siteHasNothing || redditCommentPage || siteError);
+  if (allowGeneric) {
     flat = await run(generic);
   }
 

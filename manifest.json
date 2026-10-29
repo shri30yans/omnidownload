@@ -9,6 +9,8 @@
     "activeTab"
   ],
   "host_permissions": [
+    "https://*/*",
+    "http://*/*",
     "https://*.youtube.com/*",
     "https://*.googlevideo.com/*",
     "https://x.com/*",

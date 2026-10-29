@@ -1,6 +1,6 @@
 import { registerExtractor } from '../core/registry.js';
 import { mediaItemsFromPlayer } from '../core/youtube-streams.js';
-import { fetchIosPlayerResponse } from '../core/youtube-innertube.js';
+import { fetchPlayerResponse } from '../core/youtube-innertube.js';
 import { readYoutubePlayerResponse } from '../content/youtube-player-read.js';
 
 /** Video id the page is showing (watch, shorts, embed, youtu.be). */
@@ -15,7 +15,7 @@ async function extractYoutube(ctx) {
   const wanted = pageVideoId(ctx.location);
   if (!wanted) return [];
   try {
-    return mediaItemsFromPlayer(await fetchIosPlayerResponse(wanted));
+    return mediaItemsFromPlayer(await fetchPlayerResponse(wanted));
   } catch (err) {
     console.warn('[OmniDownload] YouTube player API failed, trying page data', err);
   }

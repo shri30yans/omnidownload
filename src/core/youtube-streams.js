@@ -1,35 +1,35 @@
+import { sanitizeFilename } from './filename.js';
 import { mediaItem } from './media-item.js';
 
-function mimeKind(mimeType) {
-  if (!mimeType) return 'other';
-  if (mimeType.startsWith('video')) return 'video';
-  if (mimeType.startsWith('audio')) return 'audio';
-  return 'other';
-}
+const isVideo = (f) => /^video\//.test(f.mimeType || '');
+const isAudio = (f) => /^audio\//.test(f.mimeType || '');
+const isMp4 = (f) => /mp4/.test(f.mimeType || '');
+const isAvc = (f) => /avc1/.test(f.mimeType || '');
+const isAv1 = (f) => /av01/.test(f.mimeType || '');
+const isWebm = (f) => /webm/.test(f.mimeType || '');
+const hasUrl = (f) => typeof f.url === 'string' && f.url.startsWith('http');
 
-function extensionFor(mimeType, kind) {
-  if (/webm/.test(mimeType || '')) return kind === 'audio' ? 'weba' : 'webm';
-  return kind === 'audio' ? 'm4a' : 'mp4';
-}
+const cleanTitle = (title, fallback) => sanitizeFilename(title || fallback, 100);
 
-function labelFor(format, kind, hasAudio) {
-  if (kind === 'audio') {
-    const kbps = format.bitrate ? ` ${Math.round(format.bitrate / 1000)}kbps` : '';
-    return `Audio only${kbps}`;
-  }
-  const h = format.height ? ` ${format.height}p` : '';
-  return `Video${h}${hasAudio ? ' (with audio)' : ' (video only)'}`;
-}
+const sizeLabel = (bytes) => {
+  const mb = Number(bytes) / 1e6;
+  if (!mb) return '';
+  return mb >= 1000 ? `${(mb / 1000).toFixed(1)} GB` : `${Math.max(1, Math.round(mb))} MB`;
+};
+
+/** Best (highest bitrate) format of each kind. */
+const best = (formats) => formats.reduce((a, b) => ((b.bitrate || 0) > (a?.bitrate || 0) ? b : a), null);
 
 /**
- * Turn a YouTube player response into media items.
+ * One row per video, one row per audio track, no matter how many resolutions
+ * YouTube offers. Resolutions are variants of the same row.
  *
  * Formats that only carry a `signatureCipher` are skipped: their URL is
- * unusable without the signature, which needs the player JS to decipher
- * (yt-dlp runs a JS interpreter for this). Only formats with a plain `url`
- * are offered, so every listed item can actually be downloaded.
+ * unusable without the player JS. Video above 360p comes as a separate
+ * video-only and audio-only stream; a variant with `audioUrl` is joined into
+ * one MP4 at download time.
  *
- * @param {any} player
+ * @param {any} player merged player response
  */
 export function mediaItemsFromPlayer(player) {
   const streaming = player?.streamingData;
@@ -41,23 +41,15 @@ export function mediaItemsFromPlayer(player) {
   }
 
   const videoId = player.videoDetails?.videoId || 'video';
-  const progressive = new Set(streaming.formats || []);
-  const all = [...(streaming.formats || []), ...(streaming.adaptiveFormats || [])];
+  const title = cleanTitle(player.videoDetails?.title, `youtube-${videoId}`);
+  const previewUrl = `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;
+  const progressive = (streaming.formats || []).filter(hasUrl);
+  const adaptive = (streaming.adaptiveFormats || []).filter(hasUrl);
 
-  const usable = all
-    .filter((f) => typeof f.url === 'string' && f.url.startsWith('http'))
-    .map((f) => ({ f, kind: mimeKind(f.mimeType) }))
-    .filter((x) => x.kind === 'video' || x.kind === 'audio')
-    .sort((a, b) => {
-      if (a.kind !== b.kind) return a.kind === 'video' ? -1 : 1;
-      const pa = progressive.has(a.f) ? 1 : 0;
-      const pb = progressive.has(b.f) ? 1 : 0;
-      if (pa !== pb) return pb - pa;
-      return (b.f.height || b.f.bitrate || 0) - (a.f.height || a.f.bitrate || 0);
-    });
-
-  if (!usable.length) {
-    const ciphered = all.some((f) => f.signatureCipher || f.cipher);
+  if (!progressive.length && !adaptive.length) {
+    const ciphered = [...(streaming.formats || []), ...(streaming.adaptiveFormats || [])].some(
+      (f) => f.signatureCipher || f.cipher,
+    );
     throw new Error(
       ciphered
         ? 'YouTube only offered signature-protected streams for this video (not supported yet).'
@@ -65,26 +57,72 @@ export function mediaItemsFromPlayer(player) {
     );
   }
 
-  // Adaptive lists repeat each height as avc/vp9/av1: keep one per height
-  // (mp4/avc plays everywhere) and the best audio track per container.
-  const isAvcMp4 = (f) => /mp4/.test(f.mimeType) && !/av01/.test(f.mimeType);
-  const heights = new Set(usable.filter((u) => u.kind === 'video' && isAvcMp4(u.f)).map((u) => u.f.height));
-  const seen = new Set();
-  const trimmed = usable.filter(({ f, kind }) => {
-    if (progressive.has(f)) return true;
-    if (kind === 'video' && !isAvcMp4(f) && heights.has(f.height)) return false;
-    const key = kind === 'video' ? `v${f.height}` : `a${isAvcMp4(f) ? 'mp4' : 'webm'}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  // Audio: best AAC (joins into MP4 and plays everywhere), plus best Opus as an extra choice.
+  const aacAudio = best(adaptive.filter((f) => isAudio(f) && isMp4(f)));
+  const opusAudio = best(adaptive.filter((f) => isAudio(f) && isWebm(f)));
 
-  return trimmed.map(({ f, kind }) =>
-    mediaItem({
+  // Video: one entry per height. H.264 plays everywhere; heights it lacks (1440p, 4K)
+  // fall back to AV1 in MP4. Both join into MP4; VP9/WebM cannot.
+  const byHeight = new Map();
+  for (const f of progressive.filter(isVideo)) byHeight.set(f.height, { f, joined: false });
+  if (aacAudio) {
+    for (const codec of [isAvc, isAv1]) {
+      for (const f of adaptive.filter((x) => isVideo(x) && isMp4(x) && codec(x))) {
+        if (!byHeight.has(f.height)) byHeight.set(f.height, { f, joined: true });
+      }
+    }
+  }
+
+  const variants = [...byHeight.entries()]
+    .sort(([a], [b]) => b - a)
+    .map(([height, { f, joined }]) => {
+      const bytes = Number(f.contentLength || 0) + (joined ? Number(aacAudio.contentLength || 0) : 0);
+      return {
+        url: f.url,
+        ...(joined ? { audioUrl: aacAudio.url, totalBytes: bytes } : {}),
+        label: [`${height}p`, isAv1(f) ? 'AV1' : '', sizeLabel(bytes)].filter(Boolean).join(' · '),
+        filename: `${title} ${height}p.mp4`,
+      };
+    });
+
+  const items = [];
+  if (variants.length) {
+    items.push(
+      mediaItem({
+        url: variants[0].url,
+        label: title,
+        kind: 'video',
+        filename: variants[0].filename,
+        previewUrl,
+        variants,
+      }),
+    );
+  }
+
+  const audioVariants = [
+    [aacAudio, 'M4A', 'm4a'],
+    [opusAudio, 'Opus', 'webm'],
+  ]
+    .filter(([f]) => f)
+    .map(([f, name, ext]) => ({
       url: f.url,
-      label: labelFor(f, kind, progressive.has(f)),
-      kind,
-      filename: `youtube-${videoId}-${f.itag}.${extensionFor(f.mimeType, kind)}`,
-    }),
-  );
+      label: [name, f.bitrate ? `${Math.round(f.bitrate / 1000)}kbps` : '', sizeLabel(f.contentLength)]
+        .filter(Boolean)
+        .join(' · '),
+      filename: `${title}.${ext}`,
+    }));
+  if (audioVariants.length) {
+    items.push(
+      mediaItem({
+        url: audioVariants[0].url,
+        label: `${title} (audio)`,
+        kind: 'audio',
+        filename: audioVariants[0].filename,
+        previewUrl,
+        variants: audioVariants,
+      }),
+    );
+  }
+
+  return items;
 }

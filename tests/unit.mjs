@@ -2,7 +2,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mediaItemsFromPlayer } from '../src/core/youtube-streams.js';
-import { mediaFromRedditJson, redditExternalUrl } from '../src/core/reddit-json.js';
+import { mergePlayerResponses } from '../src/core/youtube-innertube.js';
+import { mediaFromRedditJson, redditExternalUrl, redditOffsiteLink } from '../src/core/reddit-json.js';
 import { shortcodeToMediaId, shortcodeFromInstagramUrl } from '../src/core/instagram-id.js';
 import { bestCandidate, harvestInstagramGraphJson } from '../src/core/embed-media.js';
 import { sanitizeFilename } from '../src/core/filename.js';
@@ -16,19 +17,29 @@ test('youtube: skips signatureCipher formats, never builds unsigned urls', () =>
   assert.throws(() => mediaItemsFromPlayer(player), /signature-protected/);
 });
 
-test('youtube: one video per height (prefers avc mp4), best audio, progressive first', () => {
-  const player = { playabilityStatus: { status: 'OK' }, videoDetails: { videoId: 'x' }, streamingData: {
-    formats: [fmt({ itag: 18, url: 'https://a/18', height: 360, audioQuality: 'AUDIO_QUALITY_LOW' })],
+test('youtube: one video row, one audio row; resolutions are variants', () => {
+  const player = { playabilityStatus: { status: 'OK' }, videoDetails: { videoId: 'x', title: 'My: Clip?' }, streamingData: {
+    formats: [fmt({ itag: 18, url: 'https://a/18', height: 360 })],
     adaptiveFormats: [
       { itag: 248, mimeType: 'video/webm; codecs="vp9"', url: 'https://a/248', height: 1080 },
-      fmt({ itag: 137, url: 'https://a/137', height: 1080 }),
+      fmt({ itag: 137, url: 'https://a/137', height: 1080, contentLength: '5000000' }),
+      fmt({ itag: 134, url: 'https://a/134', height: 360 }),
       fmt({ itag: 399, mimeType: 'video/mp4; codecs="av01"', url: 'https://a/399', height: 1080 }),
       { itag: 140, mimeType: 'audio/mp4; codecs="mp4a"', url: 'https://a/140', bitrate: 130000 },
+      { itag: 251, mimeType: 'audio/webm; codecs="opus"', url: 'https://a/251', bitrate: 140000 },
     ] } };
   const items = mediaItemsFromPlayer(player);
-  assert.deepEqual(items.map((i) => i.url), ['https://a/18', 'https://a/137', 'https://a/140']);
-  assert.match(items[0].label, /with audio/);
-  assert.match(items[1].label, /video only/);
+  assert.equal(items.length, 2);
+  assert.equal(items[0].kind, 'video');
+  assert.equal(items[0].label, 'My_ Clip_');
+  assert.equal(items[1].kind, 'audio');
+  const v = items[0].variants;
+  assert.deepEqual(v.map((x) => x.url), ['https://a/137', 'https://a/18']);
+  assert.equal(v[0].audioUrl, 'https://a/140');
+  assert.equal(v[1].audioUrl, undefined);
+  assert.match(v[0].label, /^1080p/);
+  assert.equal(v[0].filename, 'My_ Clip_ 1080p.mp4');
+  assert.deepEqual(items[1].variants.map((x) => x.url), ['https://a/140', 'https://a/251']);
 });
 
 test('youtube: unplayable video surfaces the reason', () => {
@@ -45,6 +56,8 @@ test('reddit: video, image, gallery, gifv, crosspost', () => {
   const cross = mediaFromRedditJson(post({ crosspost_parent_list: [{ url: 'https://i.redd.it/orig.png' }] }));
   assert.equal(cross[0].url, 'https://i.redd.it/orig.png');
   assert.equal(redditExternalUrl(post({ url: 'https://imgur.com/a/abc' })), 'https://imgur.com/a/abc');
+  assert.equal(redditOffsiteLink('https://example.watch/foo'), 'https://example.watch/foo');
+  assert.equal(redditOffsiteLink('https://i.redd.it/x.jpg'), null);
 });
 
 test('instagram: shortcode -> media id, url forms', () => {
@@ -147,4 +160,17 @@ test('mp4: fragmented output is flattened into a normal, playable MP4', async ()
   assert.equal(Number(info.streams.find((s) => s.codec_type === 'video').nb_read_frames), 48);
   assert.ok(info.streams.some((s) => s.codec_type === 'audio'));
   assert.equal(spawnSync('ffmpeg', ['-v', 'error', '-i', out, '-f', 'null', '-']).stderr.length, 0);
+});
+
+test('youtube: 4K falls back to AV1 in MP4 and formats from several clients merge', () => {
+  const ok = (formats, adaptiveFormats) => ({ playabilityStatus: { status: 'OK' }, videoDetails: { videoId: 'x', title: 'T' }, streamingData: { formats, adaptiveFormats } });
+  const merged = mergePlayerResponses([
+    { playabilityStatus: { status: 'LOGIN_REQUIRED' } },
+    ok([], [{ itag: 140, mimeType: 'audio/mp4; codecs="mp4a"', url: 'https://a/140', bitrate: 1 }, { itag: 137, mimeType: 'video/mp4; codecs="avc1"', url: 'https://a/137', height: 1080 }]),
+    ok([{ itag: 18, mimeType: 'video/mp4; codecs="avc1"', url: 'https://b/18', height: 360 }],
+      [{ itag: 401, mimeType: 'video/mp4; codecs="av01"', url: 'https://b/401', height: 2160 }, { itag: 313, mimeType: 'video/webm; codecs="vp9"', url: 'https://b/313', height: 2160 }, { itag: 140, mimeType: 'audio/mp4; codecs="mp4a"', url: 'https://b/140', bitrate: 1 }]),
+  ]);
+  const v = mediaItemsFromPlayer(merged)[0].variants;
+  assert.deepEqual(v.map((x) => x.url), ['https://b/401', 'https://a/137', 'https://b/18']);
+  assert.match(v[0].label, /^2160p · AV1/);
 });

@@ -1,19 +1,72 @@
 import { mediaItem } from './media-item.js';
+import { redditPostIdFromUrl } from './reddit-post-id.js';
+import { queryAllDeep, queryDeep } from './shadow-dom.js';
 
 const IMAGE = /\.(jpe?g|png|gif|webp)(\?|$)/i;
+const REDDIT_MEDIA = /https:\/\/(?:[^"'\s]*\.)?(?:redd\.it|redditmedia\.com)\/[^"'\s]+/gi;
 
 /**
- * Read media straight from Reddit's rendered post (<shreddit-post>), for when
- * the JSON API refuses us. Whatever the visitor can see, we can list.
- *
  * @param {Document} doc
+ * @param {string} [pageUrl]
  */
-export function mediaFromRedditDom(doc) {
-  const post = doc.querySelector('shreddit-post');
+export function findShredditPost(doc, pageUrl) {
+  const postId = redditPostIdFromUrl(pageUrl || doc.defaultView?.location?.href || '');
+  const posts = queryAllDeep(doc.documentElement, 'shreddit-post');
+  if (postId) {
+    for (const el of posts) {
+      const id = el.id || '';
+      const pid = el.getAttribute('post-id') || '';
+      const permalink = el.getAttribute('permalink') || '';
+      if (
+        id === `t3_${postId}` ||
+        pid === postId ||
+        el.getAttribute('thingid') === `t3_${postId}` ||
+        permalink.includes(`/comments/${postId}/`)
+      ) {
+        return el;
+      }
+    }
+  }
+  return posts[0] ?? doc.querySelector('shreddit-post');
+}
+
+/**
+ * Last-resort: Reddit embeds media URLs in inline JSON on comment pages.
+ * @param {Document} doc
+ * @param {string | null} postId
+ */
+function mediaUrlsFromInlineJson(doc, postId) {
+  const hay = doc.documentElement.innerHTML;
+  const slice = postId && hay.includes(postId) ? extractAround(hay, postId, 120_000) : hay.slice(0, 400_000);
+  const urls = new Set();
+  for (const m of slice.matchAll(REDDIT_MEDIA)) {
+    let u = m[0].replace(/\\u002F/g, '/').replace(/\\\//g, '/').replace(/&amp;/g, '&');
+    if (/\.(mp4|webm|m3u8|jpe?g|png|gif|webp)/i.test(u)) urls.add(u);
+  }
+  return [...urls];
+}
+
+function extractAround(text, needle, radius) {
+  const i = text.indexOf(needle);
+  if (i < 0) return text.slice(0, radius);
+  return text.slice(Math.max(0, i - radius / 2), i + radius / 2);
+}
+
+/**
+ * @param {Document} doc
+ * @param {string} [pageUrl]
+ */
+export function mediaFromRedditDom(doc, pageUrl) {
+  const post = findShredditPost(doc, pageUrl);
   if (!post) return [];
   const items = [];
+  const seen = new Set();
   const push = (url, label, kind, filename) => {
-    if (url) items.push(mediaItem({ url: url.replace(/&amp;/g, '&'), label, kind, filename }));
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    items.push(
+      mediaItem({ url: url.replace(/&amp;/g, '&'), label, kind, filename, source: 'reddit' }),
+    );
   };
 
   const href = post.getAttribute('content-href') || '';
@@ -22,8 +75,7 @@ export function mediaFromRedditDom(doc) {
   if (type === 'image' && href) push(href, 'Reddit image', 'image');
   if (type === 'gif' && href) push(href, 'Reddit GIF', IMAGE.test(href) ? 'image' : 'video');
 
-  const player = post.querySelector('shreddit-player-2, shreddit-player');
-  if (player) {
+  for (const player of queryAllDeep(post, 'shreddit-player-2, shreddit-player')) {
     const packed = player.getAttribute('packaged-media-json');
     if (packed) {
       try {
@@ -35,21 +87,35 @@ export function mediaFromRedditDom(doc) {
           push(p.source?.url, `Reddit video${h ? ` ${h}p` : ''}`, 'video');
         }
       } catch {
-        /* fall through to src */
+        /* ignore */
       }
     }
     const src = player.getAttribute('src');
-    if (src && !items.some((i) => i.kind === 'video')) push(src, 'Reddit video (HLS)', 'video');
+    if (src) push(src, 'Reddit video (stream)', 'video');
   }
 
-  if (type === 'gallery' || post.querySelector('gallery-carousel')) {
-    const seen = new Set();
-    post.querySelectorAll('gallery-carousel img, gallery-carousel faceplate-img').forEach((img) => {
+  if (type === 'gallery' || queryDeep(post, 'gallery-carousel')) {
+    let n = 0;
+    for (const img of queryAllDeep(post, 'gallery-carousel img, gallery-carousel faceplate-img, img')) {
       const src = img.getAttribute('src') || img.getAttribute('data-lazy-src');
-      if (!src || seen.has(src)) return;
-      seen.add(src);
-      push(src, `Gallery ${seen.size}`, 'image');
-    });
+      if (!src || !/preview\.redd\.it|i\.redd\.it/i.test(src)) continue;
+      n += 1;
+      push(src, `Gallery ${n}`, 'image');
+    }
   }
+
+  for (const img of queryAllDeep(post, 'img[src*="redd.it"]')) {
+    const src = img.getAttribute('src') || '';
+    if (src && /preview\.redd\.it|i\.redd\.it/i.test(src)) {
+      push(src, 'Reddit image', 'image');
+    }
+  }
+
+  const postId = redditPostIdFromUrl(pageUrl || '');
+  for (const url of mediaUrlsFromInlineJson(doc, postId)) {
+    const kind = /\.(mp4|webm|m3u8)/i.test(url) ? 'video' : 'image';
+    push(url, kind === 'video' ? 'Reddit video (embedded)' : 'Reddit image (embedded)', kind);
+  }
+
   return items;
 }

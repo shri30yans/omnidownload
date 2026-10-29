@@ -1,9 +1,10 @@
 import { mediaItem } from '../core/media-item.js';
 import { pageFetchJson } from '../core/page-fetch.js';
-import { mediaFromRedditJson, redditExternalUrl } from '../core/reddit-json.js';
-import { mediaFromRedditDom } from '../core/reddit-dom.js';
+import { mediaFromRedditJson, redditExternalUrl, redditOffsiteLink } from '../core/reddit-json.js';
+import { findShredditPost, mediaFromRedditDom } from '../core/reddit-dom.js';
 import { redditSlugFromUrl } from '../core/reddit-slug.js';
-import { extractViaPlatform } from '../core/platform-client.js';
+import { resolveRedditLinkedMedia } from '../core/reddit-linked.js';
+import { mediaFromPageMeta } from '../core/page-meta-media.js';
 import { MSG } from '../core/messages.js';
 import { registerExtractor } from '../core/registry.js';
 
@@ -21,12 +22,20 @@ async function redditAudioFor(videoUrl) {
 
 async function extractReddit(ctx) {
   const slug = redditSlugFromUrl(ctx.url);
-  if (!slug) return [];
+  if (!slug) {
+    const earlyDom = mediaFromRedditDom(ctx.document, ctx.url);
+    if (earlyDom.length) return earlyDom;
+    const meta = mediaFromPageMeta(ctx.document, 'reddit');
+    if (meta.length) return meta;
+    return [];
+  }
 
+  const hints = [];
   let json = null;
   try {
-    json = await pageFetchJson(`/${slug}/.json?raw_json=1`);
+    json = await pageFetchJson(`https://www.reddit.com/${slug}/.json?raw_json=1`);
   } catch (err) {
+    hints.push(`API: ${err?.message || 'unavailable'}`);
     console.warn('[OmniDownload] Reddit JSON unavailable, reading the page instead', err.message);
   }
 
@@ -40,12 +49,36 @@ async function extractReddit(ctx) {
     if (items.length) return items;
 
     const external = redditExternalUrl(json);
-    if (external && /imgur\.com/i.test(external)) {
-      return extractViaPlatform('imgur', external);
+    if (external) {
+      const { items: linked, error } = await resolveRedditLinkedMedia(external);
+      if (linked.length) return linked;
+      if (error) hints.push(`link: ${error}`);
     }
   }
 
-  return mediaFromRedditDom(ctx.document);
+  const domItems = mediaFromRedditDom(ctx.document, ctx.url);
+  if (domItems.length) return domItems;
+
+  const metaItems = mediaFromPageMeta(ctx.document, 'reddit');
+  if (metaItems.length) return metaItems;
+
+  const post = findShredditPost(ctx.document, ctx.url);
+  const href = post?.getAttribute('content-href') || '';
+  const offsite = redditOffsiteLink(href);
+  if (offsite) {
+    const { items: linked, error } = await resolveRedditLinkedMedia(offsite);
+    if (linked.length) return linked;
+    if (error) hints.push(`link: ${error}`);
+  }
+
+  if (!post) hints.push('post UI not loaded yet');
+  console.warn('[OmniDownload] Reddit extract empty', { slug, hints, url: ctx.url });
+
+  throw new Error(
+    hints.length
+      ? hints.join(' · ')
+      : 'Post still loading or no media — wait a moment, then tap ↻ Refresh',
+  );
 }
 
 registerExtractor({

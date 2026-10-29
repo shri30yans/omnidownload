@@ -2,7 +2,7 @@
 
 | Site | OmniDownload | Runs in |
 |------|----------------|---------|
-| **YouTube** | Innertube `ios` client; fallback `movie_player.getPlayerResponse()` | Content (same-origin) / MAIN-world inject |
+| **YouTube** | Innertube clients (ios, android, visionos, android_vr, tv_samsung; yt-dlp's list) queried in parallel without cookies and merged by itag (one video row, resolutions as variants; >360p joins video+audio streams into one MP4 in the page, `core/mp4-merge.js`); fallback `movie_player.getPlayerResponse()` | Content (same-origin) / MAIN-world inject |
 | **Reddit** | `/{slug}/.json`, then `<shreddit-post>` DOM | Content (same-origin) |
 | **Instagram** | `/api/v1/media/{id}/info/` (login required) | Content (same-origin) |
 | **X / Twitter** | `cdn.syndication.twimg.com/tweet-result`, then guest GraphQL | Background |

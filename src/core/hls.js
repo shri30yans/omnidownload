@@ -71,7 +71,9 @@ export function findPlaylistUrls(doc, perf) {
   const add = (u) => u && found.add(u.replace(/\\\//g, '/').replace(/&amp;/g, '&'));
 
   for (const m of doc.documentElement.outerHTML.matchAll(PLAYLIST_URL)) add(m[0]);
-  for (const r of perf.getEntriesByType('resource')) if (/\.m3u8(\?|$)/i.test(r.name)) add(r.name);
+  for (const r of perf?.getEntriesByType('resource') ?? []) {
+    if (/\.m3u8(\?|$)/i.test(r.name)) add(r.name);
+  }
   doc.querySelectorAll('video[src], source[src]').forEach((el) => {
     if (/\.m3u8(\?|$)/i.test(el.src)) add(el.src);
   });

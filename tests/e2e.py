@@ -17,7 +17,8 @@ JS = """() => {
     status: r.querySelector('.omni-status')?.textContent,
     items: [...r.querySelectorAll('.omni-item')].map(li => ({
       title: li.querySelector('.omni-item-title')?.textContent,
-      sub: li.querySelector('.omni-item-sub')?.textContent})),
+      sub: li.querySelector('.omni-item-sub')?.textContent,
+      kind: li.dataset.kind})),
   };
 }"""
 
@@ -42,14 +43,14 @@ def run():
                     except Exception: continue   # page still navigating
                     if got and got["items"]:
                         break
-                kinds = [i["sub"].split(" ")[0] for i in (got or {}).get("items", [])]
+                kinds = [i.get("kind") or i["sub"].split(" ")[0] for i in (got or {}).get("items", [])]
                 want = c.get("expect", "video")
                 ok = (not kinds) if want == "none" else kinds.count(want) >= c.get("min", 1)
                 if ok and c.get("pick") and got["items"]:
                     # Stream download: the extension saves via the page, so catch it in the browser.
-                    page.evaluate("(q) => [...document.querySelectorAll('.omni-item')].find(li => li.textContent.includes(q)).querySelector('button').click()", c["pick"])
                     with page.expect_download(timeout=180000) as info:
-                        pass
+                        page.evaluate("(q) => [...document.querySelectorAll('.omni-item')].find(li => li.textContent.includes(q)).querySelector('button').click()", c["pick"])
+                    got["status"] += f" | file name: {info.value.suggested_filename}"
                     path = os.path.join(tempfile.mkdtemp(), "out.mp4")
                     info.value.save_as(path)
                     got["status"] += f" | saved {os.path.getsize(path)} bytes -> {path}"

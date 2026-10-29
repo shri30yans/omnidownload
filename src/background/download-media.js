@@ -1,5 +1,43 @@
 import { sanitizeFilename } from '../core/filename.js';
 
+/**
+ * Fetch remote media bytes (used when the content script needs to convert them).
+ * @param {string} url
+ */
+export async function fetchMediaBytes(url) {
+  const res = await fetch(url, { redirect: 'follow' });
+  if (!res.ok) throw new Error(`Could not fetch file (HTTP ${res.status})`);
+  const buffer = await res.arrayBuffer();
+  if (!buffer.byteLength) {
+    throw new Error('Downloaded file is empty (URL may have expired — refresh the page)');
+  }
+  return buffer;
+}
+
+/**
+ * Save an in-memory file (e.g. converted MP3) via chrome.downloads.
+ * @param {ArrayBuffer} data
+ * @param {string} filename
+ * @param {string} [mimeType='application/octet-stream']
+ */
+export async function downloadMediaBytes(data, filename, mimeType = 'application/octet-stream') {
+  const safeName = sanitizeFilename(filename);
+  const blob = new Blob([data], { type: mimeType });
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const downloadId = await chrome.downloads.download({
+      url: objectUrl,
+      filename: safeName,
+      saveAs: false,
+      conflictAction: 'uniquify',
+    });
+    return await waitForDownload(downloadId);
+  } finally {
+    // Keep the object URL alive until the browser has started reading it.
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+  }
+}
+
 /** Last resort: fetch the bytes here and hand the browser a blob URL. */
 async function downloadViaFetch(url, filename) {
   const res = await fetch(url, { redirect: 'follow' });

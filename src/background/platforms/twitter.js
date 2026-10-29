@@ -79,18 +79,25 @@ function itemsFromLegacy(legacy) {
     } else if (m.type === 'video' || m.type === 'animated_gif') {
       const variants = (m.video_info?.variants || [])
         .filter((v) => v.url && v.content_type === 'video/mp4')
-        .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
-      for (const v of variants) {
-        if (seen.has(v.url)) continue;
-        seen.add(v.url);
-        items.push(
-          mediaItem({
-            url: v.url,
-            label: `Video${v.bitrate ? ` ${Math.round(v.bitrate / 1000)}kbps` : ''}`,
-            kind: 'video',
-          }),
-        );
-      }
+        .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))
+        .filter((v) => {
+          if (seen.has(v.url)) return false;
+          seen.add(v.url);
+          return true;
+        })
+        .map((v) => ({
+          url: v.url,
+          label: v.bitrate ? `${Math.round(v.bitrate / 1000)}kbps` : 'MP4',
+        }));
+      if (!variants.length) continue;
+      items.push(
+        mediaItem({
+          url: variants[0].url,
+          label: m.type === 'animated_gif' ? 'GIF' : 'Video',
+          kind: 'video',
+          variants,
+        }),
+      );
     }
   }
   return items;

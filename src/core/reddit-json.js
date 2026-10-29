@@ -22,14 +22,21 @@ function mediaPost(post) {
  * Off-site URL for link posts (not i.redd.it / v.redd.it).
  * @param {unknown} json
  */
+/**
+ * @param {string} url
+ */
+export function redditOffsiteLink(url) {
+  if (!url || typeof url !== 'string') return null;
+  if (/reddit\.com/i.test(url) && /\/comments\//.test(url)) return null;
+  if (/i\.redd\.it|v\.redd\.it|preview\.redd\.it/i.test(url)) return null;
+  return unescapeHtml(url);
+}
+
 export function redditExternalUrl(json) {
   const post = mediaPost(postPayload(json));
   if (!post) return null;
   const videoUrl = post.url_overridden_by_dest || post.url;
-  if (!videoUrl || typeof videoUrl !== 'string') return null;
-  if (/reddit\.com/i.test(videoUrl) && /\/comments\//.test(videoUrl)) return null;
-  if (/i\.redd\.it|v\.redd\.it|preview\.redd\.it/i.test(videoUrl)) return null;
-  return unescapeHtml(videoUrl);
+  return redditOffsiteLink(videoUrl);
 }
 
 /**

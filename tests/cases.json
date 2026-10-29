@@ -6,6 +6,12 @@
   "download": true
  },
  {
+  "name": "youtube HD download (video+audio joined)",
+  "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  "expect": "video",
+  "pick": "Rick Astley"
+ },
+ {
   "name": "youtube watch",
   "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
   "expect": "video"

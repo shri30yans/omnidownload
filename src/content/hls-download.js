@@ -1,6 +1,7 @@
 import muxjs from 'mux.js';
 import { parseMediaPlaylist } from '../core/hls.js';
 import { flattenFragmentedMp4 } from '../core/mp4-flatten.js';
+import { saveBlob } from './save-blob.js';
 
 const CONCURRENCY = 4;
 
@@ -60,13 +61,6 @@ export async function downloadHls(playlistUrl, filename, onProgress = () => {}) 
     return bytes;
   });
 
-  const blobUrl = URL.createObjectURL(transmux(data));
-  const a = document.createElement('a');
-  a.href = blobUrl;
-  a.download = filename.replace(/\.(ts|m3u8)$/i, '') + (/\.mp4$/i.test(filename) ? '' : '.mp4');
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+  saveBlob(transmux(data), filename.replace(/\.(ts|m3u8)$/i, '') + (/\.mp4$/i.test(filename) ? '' : '.mp4'));
   return { ok: true };
 }

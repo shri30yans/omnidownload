@@ -1,6 +1,11 @@
 import { MSG } from '../core/messages.js';
-import { downloadMediaUrl } from './download-media.js';
+import {
+  downloadMediaBytes,
+  downloadMediaUrl,
+  fetchMediaBytes,
+} from './download-media.js';
 import { extractOnPlatform } from './extract-router.js';
+import { resolveLinkedPage } from './linked-page.js';
 import { injectYoutubePlayerReader } from './page-main-world.js';
 
 chrome.action.onClicked.addListener(async (tab) => {
@@ -56,10 +61,31 @@ async function handleMessage(message, sender) {
   switch (message.type) {
     case MSG.DOWNLOAD:
       return downloadMediaUrl(message.url, message.filename);
+    case MSG.FETCH_BYTES: {
+      try {
+        const data = await fetchMediaBytes(message.url);
+        return { ok: true, data };
+      } catch (err) {
+        return { ok: false, error: err?.message || 'Fetch failed' };
+      }
+    }
+    case MSG.DOWNLOAD_BYTES: {
+      try {
+        return await downloadMediaBytes(
+          message.data,
+          message.filename,
+          message.mimeType || 'application/octet-stream',
+        );
+      } catch (err) {
+        return { ok: false, error: err?.message || 'Download failed' };
+      }
+    }
     case MSG.FETCH_HEAD:
       return fetchHead(message.url);
     case MSG.EXTRACT_PLATFORM:
       return extractPlatform(message.platform, message.url);
+    case MSG.RESOLVE_LINKED_PAGE:
+      return resolveLinkedPageMessage(message.url);
     case MSG.INJECT_YT_PLAYER: {
       const tabId = sender?.tab?.id;
       if (!tabId) return { ok: false, error: 'No tab' };
@@ -79,6 +105,15 @@ async function fetchHead(url) {
   const res = await fetch(url, { method: 'HEAD', redirect: 'follow' });
   const type = res.headers.get('content-type') || '';
   return { ok: res.ok, contentType: type, status: res.status };
+}
+
+async function resolveLinkedPageMessage(url) {
+  try {
+    const items = await resolveLinkedPage(url);
+    return { ok: true, items };
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err), items: [] };
+  }
 }
 
 async function extractPlatform(platform, url) {
