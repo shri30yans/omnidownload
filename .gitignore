@@ -2,3 +2,6 @@
 *.zip
 node_modules/
 dist/
+
+# rendered previews
+preview_*.mp4
